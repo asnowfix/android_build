@@ -1141,7 +1141,8 @@ fi
 unset _xarray
 
 # Execute the contents of any vendorsetup.sh files we can find.
-for f in `/bin/ls vendor/*/vendorsetup.sh vendor/*/build/vendorsetup.sh 2> /dev/null`
+test -n "$ZSH_NAME" && unsetopt NOMATCH
+for f in `/bin/ls -f vendor/*/vendorsetup.sh vendor/*/build/vendorsetup.sh 2> /dev/null`
 do
     echo "including $f"
     . $f
