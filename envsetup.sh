@@ -446,19 +446,26 @@ function choosecombo()
     printconfig
 }
 
-# Clear this variable.  It will be built up again when the vendorsetup.sh
+# Clear these variables.  They will be built up again when the vendorsetup.sh
 # files are included at the end of this file.
 unset LUNCH_MENU_CHOICES
+unset LUNCH_MENU_HOOKS
 function add_lunch_combo()
 {
     local new_combo=$1
+    local new_hook=$2
     local c
     for c in ${LUNCH_MENU_CHOICES[@]} ; do
         if [ "$new_combo" = "$c" ] ; then
             return
         fi
     done
+    if [ -z "$new_hook" ]
+    then
+	new_hook=false
+    fi
     LUNCH_MENU_CHOICES=(${LUNCH_MENU_CHOICES[@]} $new_combo)
+    LUNCH_MENU_HOOKS=(${LUNCH_MENU_HOOKS[@]} $new_hook)
 }
 
 # add the default one here
@@ -490,6 +497,16 @@ function print_lunch_menu()
     echo
 }
 
+function get_combo_index() {
+    local i=1
+    local c=
+    for c in ${LUNCH_MENU_CHOICES[@]}
+    do
+	[ $c = $1 ] && (echo $i; return)
+        i=$(($i+1))
+    done
+}
+
 function lunch()
 {
     local answer
@@ -503,6 +520,7 @@ function lunch()
     fi
 
     local selection=
+    local hook=false
 
     if [ -z "$answer" ]
     then
@@ -606,6 +624,13 @@ function lunch()
     fi # !simulator
 
     echo
+
+    if [ -f ${hook} ]
+    then
+	echo "Running $hook..."
+	. ${hook}
+	echo
+    fi
 
     set_stuff_for_environment
     printconfig
