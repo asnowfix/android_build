@@ -153,6 +153,7 @@ function settitle()
         local product=$(get_build_var TARGET_PRODUCT)
         local variant=$(get_build_var TARGET_BUILD_VARIANT)
         export PROMPT_COMMAND="echo -ne \"\033]0;[${product}-${variant}] ${USER}@${HOSTNAME}: ${PWD}\007\""
+	export PROMPT="{${product}-${variant}} `echo $PROMPT | sed -e 's|^{.*} ||g'`"
     fi
 }
 
