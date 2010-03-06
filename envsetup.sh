@@ -75,6 +75,36 @@ function check_variant()
     return 1
 }
 
+ARCH_CHOICES=(arm x86)
+
+# check to see if the supplied arch is valid
+function check_arch()
+{
+    for v in ${ARCH_CHOICES[@]}
+    do
+        if [ "$v" = "$1" ]
+        then
+            return 0
+        fi
+    done
+    return 1
+}
+
+BUILD_TYPE_CHOICES=(release debug)
+
+# check to see if the supplied arch is valid
+function check_build_type()
+{
+    for v in ${BUILD_TYPE_CHOICES[@]}
+    do
+        if [ "$v" = "$1" ]
+        then
+            return 0
+        fi
+    done
+    return 1
+}
+
 function setpaths()
 {
     T=$(gettop)
@@ -102,8 +132,21 @@ function setpaths()
     # and in with the new
     CODE_REVIEWS=
     prebuiltdir=$(getprebuilt)
-    export ANDROID_EABI_TOOLCHAIN=$prebuiltdir/toolchain/arm-eabi-4.4.0/bin
-    export ANDROID_TOOLCHAIN=$ANDROID_EABI_TOOLCHAIN
+    case "$TARGET_ARCH" in
+	arm)
+	    export ANDROID_EABI_TOOLCHAIN=$prebuiltdir/toolchain/arm-eabi-4.4.0/bin
+	    export ANDROID_TOOLCHAIN=$ANDROID_EABI_TOOLCHAIN
+	    ;;
+	x86)
+	    export ANDROID_EABI_TOOLCHAIN=
+	    export ANDROID_TOOLCHAIN=$prebuiltdir/toolchain/i686-unknown-linux-gnu-4.4.0/bin
+	    ;;
+	*)
+            echo "Unhandled TARGET_ARCH='$TARGET_ARCH'."
+            return
+	    ;;
+    esac
+	    
     export ANDROID_QTOOLS=$T/development/emulator/qtools
     export ANDROID_BUILD_PATHS=:$(get_build_var ANDROID_BUILD_PATHS):$ANDROID_QTOOLS:$ANDROID_TOOLCHAIN:$ANDROID_EABI_TOOLCHAIN$CODE_REVIEWS
     export PATH=$PATH$ANDROID_BUILD_PATHS
@@ -472,10 +515,18 @@ function lunch()
         if [ $answer -le ${#LUNCH_MENU_CHOICES[@]} ]
         then
             selection=${LUNCH_MENU_CHOICES[$(($answer-$_arrayoffset))]}
+            hook=${LUNCH_MENU_HOOKS[$(($answer-$_arrayoffset))]}
         fi
-    elif (echo -n $answer | grep -q -e "^[^\-][^\-]*-[^\-][^\-]*$")
+    elif (echo -n $answer | grep -q -e "^[^\-][^\-]*-[^\-][^\-]*\(-[^\-][^\-]*-[^\-][^\-]*\)*$")
     then
         selection=$answer
+	local i=$(get_combo_index $answer)
+	if [ -z "$i" ]
+	then
+	    hook=false
+	else
+	    hook=${LUNCH_MENU_HOOKS[$(($i-$_arrayoffset))]}
+	fi
     fi
 
     if [ -z "$selection" ]
@@ -493,7 +544,7 @@ function lunch()
         export TARGET_SIMULATOR=true
         export TARGET_BUILD_TYPE=debug
     else
-        local product=$(echo -n $selection | sed -e "s/-.*$//")
+        local product=$(echo -n $selection | cut -d- -f1)
         check_product $product
         if [ $? -ne 0 ]
         then
@@ -503,7 +554,7 @@ function lunch()
             product=
         fi
 
-        local variant=$(echo -n $selection | sed -e "s/^[^\-]*-//")
+        local variant=$(echo -n $selection | cut -d- -f2)
         check_variant $variant
         if [ $? -ne 0 ]
         then
@@ -513,7 +564,35 @@ function lunch()
             variant=
         fi
 
-        if [ -z "$product" -o -z "$variant" ]
+        local build_type=$(echo -n $selection | cut -d- -f3)
+	if [ -z "$build_type" ]
+	then
+		build_type=release
+	fi
+        check_build_type $build_type
+        if [ $? -ne 0 ]
+        then
+            echo
+            echo "** Invalid build_type: '$build_type'"
+            echo "** Must be one of ${BUILD_TYPE_CHOICES[@]}"
+            build_type=
+        fi
+
+        local arch=$(echo -n $selection | cut -d- -f4)
+	if [ -z "$arch" ]
+	then
+		arch=arm
+	fi
+        check_arch $arch
+        if [ $? -ne 0 ]
+        then
+            echo
+            echo "** Invalid arch: '$arch'"
+            echo "** Must be one of ${ARCH_CHOICES[@]}"
+            arch=
+        fi
+
+        if [ -z "$product" -o -z "$variant" -o -z "$build_type" -o -z "$arch" ]
         then
             echo
             return 1
@@ -522,7 +601,8 @@ function lunch()
         export TARGET_PRODUCT=$product
         export TARGET_BUILD_VARIANT=$variant
         export TARGET_SIMULATOR=false
-        export TARGET_BUILD_TYPE=release
+        export TARGET_BUILD_TYPE=$build_type
+	export TARGET_ARCH=$arch
     fi # !simulator
 
     echo
