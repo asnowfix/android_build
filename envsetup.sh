@@ -1148,3 +1148,9 @@ do
     . $f
 done
 unset f
+
+# Default Sun HotSpot 1.5 path (for rpm & alien-ized packages)
+jdk_home=`ls -1 /usr/java/ 2>/dev/null | grep jdk1.5 | sort -r | head -n 1`
+if [ -n "$jdk_home" ]; then
+       export PATH=/usr/java/${jdk_home}/bin:$PATH
+fi
