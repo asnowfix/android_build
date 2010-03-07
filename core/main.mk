@@ -98,6 +98,18 @@ RUN_JAVAOVERRIDE_CHECK := false
 # The windows build server currently uses 1.6.  This will be fixed.
 ifneq ($(HOST_OS),windows)
 
+# Check for the correct java vendor.
+# Reason: droiddoc needs some Sun proprietary Java extensions.
+java_vendor=$(shell java -version 2>&1 | head -n 3 | awk '/^Java HotSpot/{print "hotspot";exit 0}/^OpenJDK/{print "openjdk";exit 0}{next;}')
+ifneq ($(strip $(java_vendor)),hotspot)
+$(info ************************************************************)
+$(info Your current java_vendor=$(java_vendor) cannot build the)
+$(info android sdk:  you need to use java_vendor=hotspot)
+$(info Please follow the machine setup instructions at)
+$(info $(space)$(space)$(space)$(space)http://source.android.com/download)
+$(info ************************************************************)
+endif
+
 # Check for the correct version of java
 java_version := $(shell java -version 2>&1 | head -n 1 | grep '[ "]1\.[56][\. "$$]')
 ifeq ($(strip $(java_version)),)
