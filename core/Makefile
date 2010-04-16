@@ -305,6 +305,8 @@ $(INSTALLED_BOOTIMAGE_TARGET): $(MKBOOTIMG) $(INTERNAL_BOOTIMAGE_FILES)
 	$(hide) $(call assert-max-image-size,$@,$(BOARD_BOOTIMAGE_PARTITION_SIZE),raw)
 endif # TARGET_BOOTIMAGE_USE_EXT2
 
+include $(BUILD_SYSTEM)/kernel.mk
+
 else	# TARGET_NO_KERNEL
 # HACK: The top-level targets depend on the bootimage.  Not all targets
 # can produce a bootimage, though, and emulator targets need the ramdisk
@@ -508,8 +510,16 @@ ifeq (,$(filter true, $(TARGET_NO_KERNEL) $(TARGET_NO_RECOVERY) $(BUILD_TINY_AND
 
 INSTALLED_RECOVERYIMAGE_TARGET := $(PRODUCT_OUT)/recovery.img
 
+ifndef TARGET_PREBUILT_RECOVERY_KERNEL
+INSTALLED_RECOVERY_KERNEL_TARGET := $(INSTALLED_KERNEL_TARGET)
+else
+INSTALLED_RECOVERY_KERNEL_TARGET := $(PRODUCT_OUT)/recovery_kernel
+$(INSTALLED_RECOVERY_KERNEL_TARGET): $(TARGET_PREBUILT_RECOVERY_KERNEL) | $(ACP)
+	$(copy-file-to-new-target)
+endif
+
 recovery_initrc := $(call include-path-for, recovery)/etc/init.rc
-recovery_kernel := $(INSTALLED_KERNEL_TARGET) # same as a non-recovery system
+recovery_kernel := $(INSTALLED_RECOVERY_KERNEL_TARGET)
 recovery_ramdisk := $(PRODUCT_OUT)/ramdisk-recovery.img
 recovery_build_prop := $(INSTALLED_BUILD_PROP_TARGET)
 recovery_binary := $(call intermediates-dir-for,EXECUTABLES,recovery)/recovery
@@ -517,9 +527,11 @@ recovery_resources_common := $(call include-path-for, recovery)/res
 recovery_resources_private := $(strip $(wildcard $(TARGET_DEVICE_DIR)/recovery/res))
 recovery_resource_deps := $(shell find $(recovery_resources_common) \
   $(recovery_resources_private) -type f)
-recovery_additional_executables := \
-    $(foreach _executable,$(ADDITIONAL_RECOVERY_EXECUTABLES), \
-        $(ALL_MODULES.$(_executable).BUILT))
+INTERNAL_RECOVERY_FILES := $(filter $(TARGET_RECOVERY_OUT)/%, \
+	$(ALL_PREBUILT) \
+	$(ALL_COPIED_HEADERS) \
+	$(ALL_GENERATED_SOURCES) \
+	$(ALL_DEFAULT_INSTALLED_MODULES))
 
 ifeq ($(recovery_resources_private),)
   $(info No private recovery resources for TARGET_DEVICE $(TARGET_DEVICE))
@@ -555,17 +567,17 @@ $(RECOVERY_INSTALL_OTA_KEYS): $(OTA_PUBLIC_KEYS) $(DUMPKEY_JAR)
 	@mkdir -p $(dir $@)
 	java -jar $(DUMPKEY_JAR) $(PRIVATE_OTA_PUBLIC_KEYS) > $@
 
+
 $(INSTALLED_RECOVERYIMAGE_TARGET): $(MKBOOTFS) $(MKBOOTIMG) $(MINIGZIP) \
 		$(INSTALLED_RAMDISK_TARGET) \
 		$(INSTALLED_BOOTIMAGE_TARGET) \
 		$(recovery_binary) \
-		$(recovery_additional_executables) \
+		$(INTERNAL_RECOVERY_FILES) \
 		$(recovery_initrc) $(recovery_kernel) \
 		$(INSTALLED_2NDBOOTLOADER_TARGET) \
 		$(recovery_build_prop) $(recovery_resource_deps) \
 		$(RECOVERY_INSTALL_OTA_KEYS)
 	@echo ----- Making recovery image ------
-	rm -rf $(TARGET_RECOVERY_OUT)
 	mkdir -p $(TARGET_RECOVERY_OUT)
 	mkdir -p $(TARGET_RECOVERY_ROOT_OUT)
 	mkdir -p $(TARGET_RECOVERY_ROOT_OUT)/etc
@@ -576,12 +588,6 @@ $(INSTALLED_RECOVERYIMAGE_TARGET): $(MKBOOTFS) $(MKBOOTIMG) $(MINIGZIP) \
 	cp -f $(recovery_initrc) $(TARGET_RECOVERY_ROOT_OUT)/
 	cp -f $(recovery_binary) $(TARGET_RECOVERY_ROOT_OUT)/sbin/
 	mkdir -p $(TARGET_RECOVERY_ROOT_OUT)/system/bin
-	$(foreach _executable,$(recovery_additional_executables), \
-	    cp $(_executable) $(TARGET_RECOVERY_ROOT_OUT)/sbin/;)
-	$(hide) $(foreach busyboxlink,$(notdir $(BUSYBOX_LINKS)), \
-	  ln -s busybox $(TARGET_RECOVERY_ROOT_OUT)/sbin/$(busyboxlink);)
-	$(foreach recovery_tools_link,busybox flash_image dump_image mkyaffs2image unyaffs, \
-	  ln -s recovery $(TARGET_RECOVERY_ROOT_OUT)/sbin/$(recovery_tools_link);)
 	cp -rf $(recovery_resources_common) $(TARGET_RECOVERY_ROOT_OUT)/
 	$(foreach item,$(recovery_resources_private), \
 	  cp -rf $(item) $(TARGET_RECOVERY_ROOT_OUT)/)
@@ -822,7 +828,8 @@ built_ota_tools := \
 	$(call intermediates-dir-for,EXECUTABLES,applypatch)/applypatch \
 	$(call intermediates-dir-for,EXECUTABLES,applypatch_static)/applypatch_static \
 	$(call intermediates-dir-for,EXECUTABLES,check_prereq)/check_prereq \
-	$(call intermediates-dir-for,EXECUTABLES,updater)/updater
+	$(call intermediates-dir-for,EXECUTABLES,updater)/updater 
+
 $(BUILT_TARGET_FILES_PACKAGE): PRIVATE_OTA_TOOLS := $(built_ota_tools)
 
 $(BUILT_TARGET_FILES_PACKAGE): PRIVATE_RECOVERY_API_VERSION := $(RECOVERY_API_VERSION)
@@ -853,8 +860,8 @@ $(BUILT_TARGET_FILES_PACKAGE): \
 	$(hide) mkdir -p $(zip_root)/RECOVERY
 	$(hide) $(call package_files-copy-root, \
 		$(TARGET_RECOVERY_ROOT_OUT),$(zip_root)/RECOVERY/RAMDISK)
-ifdef INSTALLED_KERNEL_TARGET
-	$(hide) $(ACP) $(INSTALLED_KERNEL_TARGET) $(zip_root)/RECOVERY/kernel
+ifdef INSTALLED_RECOVERY_KERNEL_TARGET
+	$(hide) $(ACP) $(INSTALLED_RECOVERY_KERNEL_TARGET) $(zip_root)/RECOVERY/kernel
 endif
 ifdef INSTALLED_2NDBOOTLOADER_TARGET
 	$(hide) $(ACP) \
@@ -919,6 +926,7 @@ target-files-package: $(BUILT_TARGET_FILES_PACKAGE)
 ifneq ($(TARGET_SIMULATOR),true)
 ifneq ($(TARGET_PRODUCT),sdk)
 ifneq ($(TARGET_PRODUCT),generic)
+ifneq ($(TARGET_PRODUCT),aosp_emulator_us)
 
 name := $(TARGET_PRODUCT)
 ifeq ($(TARGET_BUILD_TYPE),debug)
@@ -937,6 +945,13 @@ else
 $(INTERNAL_OTA_PACKAGE_TARGET): scriptmode := $(TARGET_OTA_SCRIPT_MODE)
 endif
 
+ifeq ($(TARGET_OTA_BACKUPTOOL),)
+# default to "false"
+$(INTERNAL_OTA_PACKAGE_TARGET): backuptool := false
+else
+$(INTERNAL_OTA_PACKAGE_TARGET): backuptool := $(TARGET_OTA_BACKUPTOOL)
+endif
+
 $(INTERNAL_OTA_PACKAGE_TARGET): $(BUILT_TARGET_FILES_PACKAGE) otatools
 	@echo "Package OTA: $@"
 	$(hide) ./build/tools/releasetools/ota_from_target_files \
@@ -944,11 +959,15 @@ $(INTERNAL_OTA_PACKAGE_TARGET): $(BUILT_TARGET_FILES_PACKAGE) otatools
 	   -m $(scriptmode) \
 	   -p $(HOST_OUT) \
            -k $(KEY_CERT_PAIR) \
+           --backup=$(backuptool) \
            $(BUILT_TARGET_FILES_PACKAGE) $@
 
 .PHONY: otapackage
 otapackage: $(INTERNAL_OTA_PACKAGE_TARGET)
 
+bacon: otapackage
+
+endif    # TARGET_PRODUCT != aosp_emulator_us
 endif    # TARGET_PRODUCT != generic
 endif    # TARGET_PRODUCT != sdk
 endif    # TARGET_SIMULATOR != true
